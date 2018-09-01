@@ -1,0 +1,86 @@
+---
+title: "Case_9CaBer"
+author: "Rafael Bicudo Rosa"
+date: "12 de agosto de 2018"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Case 9CaBer
+
+Esse relatório tem por finalidade identificar os principais influenciadores para um cliente realizar todos os passos do funil de conversão (install > car_added > first_ride). Optei por utilizar o R pela sua flexibilidade no tratamento dos dados e facilidade de geração de reports.
+
+
+```{r abertura}
+library(dplyr)
+
+campanha_df <- readxl::read_excel("Case_Estag_Estat.xlsx", sheet = 2)
+
+campanha_fact <- data.frame(sapply(campanha_df[2:11], factor))
+# variaveis descartadas por possuirem pouco informacao relevante
+campanha_tbl <- cbind(campanha_df[1],campanha_fact)
+
+glimpse(campanha_tbl)
+summary(campanha_tbl)
+```
+
+
+O primeiro passo foi a preparação do dataframe para execução de análise. Assim como visto acima, nem todas as variáveis contribuirão da mesma maneira. Desconsiderei as variáveis "Click ID", "IP" e "Site ID" por serem de identificação, portanto não possuindo muita informação de interesse à análise, e com potencial de gerar viés negativo em um modelo preditivo. Outra desconsiderada foi "Postback Timestamp" pelo intervalo de tempo curto. Em relação à variável 'Isp', por possuir uma concentração muito grande em algumas empresas e muitas outras dispersas, optei por agrupar todas essas com o label "other". Por fim, como a conversão passa obrigatoriamente por todas as fases, criei uma classe binária de "converted" e "n_converted".
+
+
+```{r limpeza}
+campanha_fact2 <- data.frame(sapply(campanha_df[c(4,5,6,8,9)], factor))
+# variaveis descartadas por possuirem pouco informacao relevante
+Isp_enxuta = ifelse(campanha_df$Isp %in% c('Claro Brazil', 'Telefonica Brasil s.a.', 'Telemar Norte Leste s.a.',
+                                      'Tim Celular S.A.', 'Brasil Telecom Sa - Filial Distrito Federal'), 
+               campanha_df$Isp, 'other')
+Isp_f = factor(Isp_enxuta)
+
+Transac_enxuta = ifelse(campanha_df[[3]] %in% c('install',"card_added"), 
+                    "n_converted", 'converted')
+Transac_f = factor(Transac_enxuta)
+
+campanha_tbl <- cbind(Transac_f, campanha_fact2, Isp_f)
+names(campanha_tbl) = c('Transaction', 'Country', 'Source', 'OS', 'Mobile', 'Connection', 'Isp')
+campanha_tbl$Mobile <- addNA(campanha_tbl$Mobile)
+campanha_tbl$Country <- addNA(campanha_tbl$Country)
+
+glimpse(campanha_tbl)
+summary(campanha_tbl)
+```
+
+
+## Variáveis mais relevantes
+
+Por ser um problema de classificação, usarei um modelo RandomForest para descobrir quais são as características mais infleuntes na determinação da de uma conversão
+
+```{r pressure, echo=FALSE}
+library(randomForest)
+set.seed(666)
+modelo <- randomForest(Transaction ~ . , 
+                       data = campanha_tbl, 
+                       importance = TRUE)
+varImpPlot(modelo)
+```
+
+Assim como visto acima, "Source" parece, de forma hegemônica, ser a variável de maior importância nos dados fornecidos, seguido por OS, Isp e Mobile com relevância considerável. Abaixo, um plot ilustrando graficamente o que o modelo concluiu.
+
+
+```{r plots}
+library(ggplot2)
+plots<- list()
+for (i in c("Source", "OS", "Isp", "Mobile")) {
+  plots[[i]] <- ggplot(campanha_tbl, aes_string(x = i, fill = 'Transaction')) + 
+    geom_bar(alpha=0.8, colour='black', position = 'dodge') + ggtitle(paste(i, 'x Transaction')) +
+    theme_minimal() +
+    coord_flip()
+  print(plots[[i]])
+}
+
+```
+
+Em uma nova rodada de investimento, seria interessante aumentar o direcionamento para a fonte de tráfego "9a2a1675-584d-491d-9fc9-aeaa674c6e2d". Em relação ao perfil dos usuários, há uma maior adesão entre usuários de Andoid, clientes de internet da Claro Brazil. 
